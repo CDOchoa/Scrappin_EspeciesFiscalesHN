@@ -1,0 +1,29 @@
+# Librerías necesarias para el proyecto
+
+# Web Scraping y Automatización
+selenium
+webdriver-manager
+undetected-chromedriver
+
+# Procesamiento de Datos
+pandas
+openpyxl  # Necesario para leer y escribir archivos .xlsx
+
+# Reconocimiento de Imágenes y PDF
+pillow
+fpdf
+pyautogui
+bs4 # Beautiful Soup para la extracción de datos
+requests # Para llamadas HTTP (incluyendo la API de Gemini)
+
+# Google Sheets API y Autenticación
+gspread
+google-auth-oauthlib
+google-auth-httplib2
+oauth2client
+
+# Utilidades
+setuptools # Necesario para algunas dependencias
+
+# Para crear el ejecutable
+pyinstaller

@@ -205,3 +205,58 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# =========================================================
+# IGNORAR ARCHIVOS DE SEGURIDAD Y ENTORNO
+# =========================================================
+# Ignora el archivo que contiene las API keys secretas.
+# ESTO ES CRÍTICO PARA LA SEGURIDAD.
+.env
+.env.*
+
+# Ignora los entornos virtuales de Python
+venv/
+env/
+/bin/
+
+# =========================================================
+# IGNORAR ARCHIVOS GENERADOS POR PYTHON/PIP
+# =========================================================
+# Ignora archivos de byte-code compilados
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+
+# Archivos de instalación y empaquetado
+dist/
+build/
+*.spec
+
+# Archivos de logs y bases de datos temporales
+*.log
+*.sqlite
+*.db
+
+# =========================================================
+# IGNORAR ARCHIVOS GENERADOS POR SELENIUM/EJECUCIÓN
+# =========================================================
+# Ignora la carpeta de salida generada por el programa
+# Contiene los PDFs o los Excel de datos de las validaciones.
+/sar_output/
+
+# Ignora archivos temporales usados para generar el PDF (ej. la captura temporal)
+*.png
+
+# =========================================================
+# IGNORAR ARCHIVOS GENERADOS POR SISTEMAS OPERATIVOS
+# =========================================================
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# macOS
+.DS_Store
+
+# archivo client_secrets.json generado por la API de Google
+client_secrets.json
