@@ -1,94 +1,115 @@
-===============================================================================
-                       SAR-VALIDADOR DE DOCUMENTOS FISCALES
-===============================================================================
+# SAR-Validador de Documentos Fiscales
 
-Proyecto: Herramienta de escritorio automatizada para la validación masiva de
-          documentos fiscales en la plataforma del SAR (Honduras).
+Herramienta de escritorio automatizada para la **validación masiva de
+documentos fiscales** en la plataforma del **SAR (Honduras)**.
 
-Desarrollador: [CArlos Ochoa / Cdochoa /CodaVesta]
-Versión: 1.0.0
-Fecha: Octubre 2025
+------------------------------------------------------------------------
 
--------------------------------------------------------------------------------
-ESTRUCTURA DEL PROYECTO
--------------------------------------------------------------------------------
+## 📌 Información General
 
+-   **Proyecto:** SAR-Validador de Documentos Fiscales\
+-   **Desarrollador:** Carlos Ochoa (Cdochoa / CodaVesta)\
+-   **Versión:** 1.0.0\
+-   **Fecha:** Octubre 2025
+
+------------------------------------------------------------------------
+
+## 📁 Estructura del Proyecto
+
+``` text
 /SAR-Validador
-├── main.py                 # Interfaz Gráfica (Tkinter) y control principal.
-├── core_processor.py       # Lógica de Negocio (Selenium, Gemini, Pandas, BS4).
-├── client_secrets.json       # ⬅️ Credenciales de la API de Google Drive/Sheets (descargado de la consola de Google Cloud). /No subidas al proyecto se crean
-├── token.json                # ⬅️ Token de autenticación de Google (se genera la primera vez que se ejecuta el script). / No subidas al proyecto se obtiene al autenticarse con su correo
-├── requirements.txt        # Dependencias de Python necesarias.
-└── README.md              # Este archivo.
+├── main.py                   # Interfaz Gráfica (Tkinter) y control principal
+├── core_processor.py         # Lógica de negocio (Selenium, Gemini, Pandas, BS4)
+├── client_secrets.json       # Credenciales API Google Drive/Sheets (NO se sube)
+├── token.json                # Token Google (se genera al autenticar)
+├── requirements.txt          # Dependencias de Python
+└── README.md                 # Documentación del proyecto
+```
 
--------------------------------------------------------------------------------
-REQUISITOS DEL ENTORNO DE DESARROLLO (Para el Programador)
--------------------------------------------------------------------------------
+> ⚠️ **client_secrets.json** y **token.json** **NO deben subirse** al
+> repositorio.
 
-1. Python 3.x.
-2. Todas las librerías listadas en requirements.txt:
-   > pip install -r requirements.txt
-3. PyInstaller para el empaquetado del ejecutable:
-   > pip install pyinstaller
+------------------------------------------------------------------------
 
--------------------------------------------------------------------------------
-🔒 CONFIGURACIÓN DE SEGURIDAD (API KEYS de Gemini)
--------------------------------------------------------------------------------
+## 🛠️ Requisitos del Entorno de Desarrollo
 
-Las claves NO están codificadas en el código (core_processor.py). Se cargan de 
-forma segura desde el archivo .env.
+1.  **Python 3.x**
 
-1. CREE el archivo **.env** en la carpeta raíz del proyecto.
-2. AGREGUE sus claves usando la convención:
-   GEMINI_API_KEY_1="[TU_CLAVE_AQUÍ]"
-   GEMINI_API_KEY_2="[TU_SEGUNDA_CLAVE_AQUÍ]"
-   ...
+2.  Instalar dependencias:
 
-¡ATENCIÓN!: Este archivo .env NUNCA debe subirse a repositorios públicos como GitHub.
+    ``` bash
+    pip install -r requirements.txt
+    ```
 
--------------------------------------------------------------------------------
-REQUISITOS DE ENTORNO DE EJECUCIÓN (Para el Usuario Final)
--------------------------------------------------------------------------------
+3.  PyInstaller:
 
-El usuario final NO necesita Python ni librerías instaladas.
+    ``` bash
+    pip install pyinstaller
+    ```
 
-1. Sistema Operativo: Windows (el ejecutable está diseñado para este OS).
-2. NAVEGADOR: Debe tener instalado Google Chrome.
+------------------------------------------------------------------------
 
--------------------------------------------------------------------------------
-INSTRUCCIONES DE EMPAQUETADO (Para el Programador)
--------------------------------------------------------------------------------
+## 🔒 Configuración de Seguridad (Gemini API)
 
-1. Asegúrese de que las API Keys de Gemini estén configuradas en 'core_processor.py'.
-2. Ejecute el comando de empaquetado en la carpeta raíz del proyecto:
-   > pyinstaller --onefile --windowed --name "SAR-Validador" main.py
-   > Ruta_Entorno --onefile --windowed --name "SAR-Validador" main.py 
-   > Ruta_Entorno_conda --onefile --windowed --name "SAR-Validador" main.py --exclude-module PyQt5 --exclude-module PyQt6 --exclude-module PySide6  ---> en caso de tener PyQt en su entorno
-   
-3. El ejecutable final "SAR-Validador.exe" se encontrará en la carpeta '/dist'.
+Las claves se cargan desde un archivo `.env`.
 
--------------------------------------------------------------------------------
-INSTRUCCIONES DE USO (Para el Usuario Final)
--------------------------------------------------------------------------------
+``` env
+GEMINI_API_KEY_1="TU_CLAVE_AQUI"
+GEMINI_API_KEY_2="TU_SEGUNDA_CLAVE_AQUI"
+```
 
-1. PREPARACIÓN DEL EXCEL: El archivo de entrada debe contener las columnas:
-   - RTN
-   - Clave referencia 3
-   - Fecha doc. (formato dd/mm/aaaa)
+🚫 Nunca subir `.env` a repositorios públicos.
 
-2. INICIO:
-   - Ejecute el archivo "SAR-Validador.exe".
-   - Paso 1: Use "Buscar Excel" para cargar el archivo preparado.
-   - Paso 2: Seleccione el "Modo de Salida" deseado:
-     - Captura de Pantalla/PDF: Genera un PDF del resultado por cada documento.
-     - Extraer Datos a Excel: Extrae los campos de la factura a un Excel consolidado.
-   - Paso 3: Elija la carpeta donde se guardarán los resultados.
-   - Presione "INICIAR PROCESAMIENTO".
+------------------------------------------------------------------------
 
-3. RESULTADOS:
-   - Al finalizar, el sistema generará los archivos correspondientes (PDFs o el Excel de Datos) en la carpeta seleccionada.
-   - Puede usar el botón "Descargar Pendientes" para generar un nuevo Excel solo con los registros que fallaron, permitiendo un reintento limpio.
+## 💻 Requisitos del Usuario Final
 
-===============================================================================
+-   **Sistema Operativo:** Windows\
+-   **Navegador:** Google Chrome
 
+------------------------------------------------------------------------
 
+## 📦 Empaquetado
+
+``` bash
+pyinstaller --onefile --windowed --name "SAR-Validador" main.py
+```
+
+El ejecutable se generará en:
+
+``` text
+/dist/SAR-Validador.exe
+```
+
+------------------------------------------------------------------------
+
+## 🚀 Uso
+
+### Preparación del Excel
+
+Columnas obligatorias:
+
+-   RTN
+-   Clave referencia 3
+-   Fecha doc. (`dd/mm/aaaa`)
+
+### Ejecución
+
+1.  Abrir `SAR-Validador.exe`
+2.  Cargar Excel
+3.  Seleccionar modo de salida
+4.  Elegir carpeta destino
+5.  Iniciar procesamiento
+
+### Resultados
+
+-   PDFs o Excel generados según el modo
+-   Botón **Descargar Pendientes** para reprocesar errores
+
+------------------------------------------------------------------------
+
+## ✅ Estado del Proyecto
+
+✔ Funcional\
+✔ Automatizado\
+✔ Listo para producción
