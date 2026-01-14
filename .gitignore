@@ -260,3 +260,5 @@ ehthumbs.db
 
 # archivo client_secrets.json generado por la API de Google
 client_secrets.json
+# archivo token.json generado por la API de Google
+token.json

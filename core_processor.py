@@ -1,6 +1,5 @@
-# core_processor.py
 
-## error de que no da el estado cuantos se completaron y fallaron y el zoom aún no funciona
+# core_processor.py - Con autenticación OAuth para Streamlit
 
 import pandas as pd
 import time
@@ -25,61 +24,360 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException,
 from selenium.webdriver.common.keys import Keys 
 # ----------------------------------------------
 
-# --- VARIABLES GLOBALES DEL MÓDULO (NECESARIAS PARA LA IMPORTACIÓN EN main.py) ---
-# Si tu main.py importa estas variables, deben estar definidas aquí.
+# --- VARIABLES GLOBALES DEL MÓDULO ---
 SHEET_ID = "1JssLNcl4c3Ph5V_jokbtAthXCy-fMEZd8UdGSPk9NQk" 
 SHEET_NAME = "APIs" 
 CLIENT_SECRETS_FILE = "client_secrets.json" 
+SERVICE_ACCOUNT_FILE = "service-account-key.json"
 TOKEN_FILE = "token.json" 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-API_KEYS = [] # <--- CLAVE PARA RESOLVER EL ImportError
+API_KEYS = []
 # ---------------------------------------------------------------------------------
 
+# Importaciones de Google OAuth
+from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
-def _obtener_credenciales():
-    """Maneja el flujo de OAuth 2.0."""
+# --- NUEVO: Soporte para Streamlit ---
+try:
+    import streamlit as st
+    STREAMLIT_AVAILABLE = True
+except ImportError:
+    STREAMLIT_AVAILABLE = False
+    # Fallback para cuando se use sin Streamlit (Tkinter)
+    class StreamlitMock:
+        def info(self, msg): print(f"ℹ️ {msg}")
+        def success(self, msg): print(f"✅ {msg}")
+        def warning(self, msg): print(f"⚠️ {msg}")
+        def error(self, msg): print(f"❌ {msg}")
+        def spinner(self, msg): 
+            class SpinnerContext:
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+            return SpinnerContext()
+    st = StreamlitMock()
+# ---------------------------------------------------------------------------------
+
+
+def _obtener_credenciales_service_account():
+    """
+    Autenticación mediante Service Account (sin OAuth, sin navegador).
+    Ideal para Streamlit y aplicaciones sin interfaz de navegador.
+    """
+    try:
+        # Verificar si existe el archivo de Service Account
+        service_path = os.path.join(sys._MEIPASS, SERVICE_ACCOUNT_FILE) if hasattr(sys, '_MEIPASS') else SERVICE_ACCOUNT_FILE
+        
+        if not os.path.exists(service_path):
+            raise FileNotFoundError(
+                f"❌ No se encontró '{SERVICE_ACCOUNT_FILE}'. "
+                "Descárgalo desde Google Cloud Console → IAM & Admin → Service Accounts"
+            )
+        
+        if STREAMLIT_AVAILABLE:
+            st.info(f"🔑 Usando autenticación con Service Account: {SERVICE_ACCOUNT_FILE}")
+        else:
+            print(f"🔑 Usando autenticación con Service Account: {SERVICE_ACCOUNT_FILE}")
+        
+        # Crear credenciales desde el archivo JSON
+        creds = service_account.Credentials.from_service_account_file(
+            service_path,
+            scopes=SCOPES
+        )
+        
+        if STREAMLIT_AVAILABLE:
+            st.success("✅ Credenciales de Service Account cargadas correctamente")
+        else:
+            print("✅ Credenciales de Service Account cargadas correctamente")
+        
+        return creds
+        
+    except Exception as e:
+        error_msg = f"❌ Error al cargar Service Account: {e}"
+        if STREAMLIT_AVAILABLE:
+            st.error(error_msg)
+            st.error("**Verifica:**\n"
+                    "1. Que 'service-account-key.json' esté en el mismo directorio\n"
+                    "2. Que el archivo JSON sea válido\n"
+                    "3. Que la Service Account tenga permisos para Google Sheets API")
+        else:
+            print(error_msg)
+        raise Exception(error_msg)
+
+
+def _obtener_credenciales_oauth():
+    """
+    Autenticación mediante OAuth (con navegador).
+    Compatible tanto con Streamlit como con Tkinter.
+    """
     creds = None
+    
+    # 1. Intentar cargar desde token guardado
     if os.path.exists(TOKEN_FILE):
-        try: creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-        except Exception: pass 
+        try:
+            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+            if STREAMLIT_AVAILABLE:
+                st.info("🔑 Credenciales OAuth cargadas desde token guardado")
+            else:
+                print("🔑 Credenciales OAuth cargadas desde token guardado")
+        except Exception as e:
+            if STREAMLIT_AVAILABLE:
+                st.warning(f"⚠️ Token existente inválido: {e}")
+            else:
+                print(f"⚠️ Token existente inválido: {e}")
+    
+    # 2. Verificar si las credenciales son válidas
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            # Manejo para PyInstaller
-            secrets_path = os.path.join(sys._MEIPASS, CLIENT_SECRETS_FILE) if hasattr(sys, '_MEIPASS') else CLIENT_SECRETS_FILE
             try:
-                flow = InstalledAppFlow.from_client_secrets_file(secrets_path, SCOPES)
-                creds = flow.run_local_server(port=0) 
+                if STREAMLIT_AVAILABLE:
+                    st.info("🔄 Refrescando token expirado...")
+                else:
+                    print("🔄 Refrescando token expirado...")
+                
+                creds.refresh(Request())
+                
+                if STREAMLIT_AVAILABLE:
+                    st.success("✅ Token refrescado exitosamente")
+                else:
+                    print("✅ Token refrescado exitosamente")
             except Exception as e:
-                raise Exception(f"Fallo en la autenticación con Google: {e}")
-        with open(TOKEN_FILE, 'w') as token: token.write(creds.to_json())
+                if STREAMLIT_AVAILABLE:
+                    st.error(f"❌ Error al refrescar token: {e}")
+                else:
+                    print(f"❌ Error al refrescar token: {e}")
+                creds = None
+        
+        # 3. Si no hay credenciales válidas, iniciar flujo OAuth
+        if not creds:
+            secrets_path = os.path.join(sys._MEIPASS, CLIENT_SECRETS_FILE) if hasattr(sys, '_MEIPASS') else CLIENT_SECRETS_FILE
+            
+            if not os.path.exists(secrets_path):
+                raise FileNotFoundError(
+                    f"❌ No se encontró el archivo '{CLIENT_SECRETS_FILE}'. "
+                    "Asegúrate de que esté en el mismo directorio que la aplicación."
+                )
+            
+            try:
+                if STREAMLIT_AVAILABLE:
+                    st.warning("🔐 Autenticación OAuth requerida. Se abrirá una ventana del navegador...")
+                    st.info("📋 Pasos:\n"
+                           "1. Se abrirá tu navegador\n"
+                           "2. Inicia sesión con tu cuenta de Google\n"
+                           "3. Autoriza el acceso a Google Sheets\n"
+                           "4. La ventana se cerrará automáticamente")
+                else:
+                    print("🔐 Autenticación OAuth requerida. Se abrirá una ventana del navegador...")
+                
+                # SOLUCIÓN PARA STREAMLIT: Usar puerto específico
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    secrets_path, 
+                    SCOPES,
+                    redirect_uri='http://localhost:8080/' if STREAMLIT_AVAILABLE else None
+                )
+                
+                # Ejecutar el servidor en puerto 8080 para evitar conflicto con Streamlit (8501)
+                port = 8080 if STREAMLIT_AVAILABLE else 0
+                creds = flow.run_local_server(
+                    port=port,
+                    authorization_prompt_message='Por favor, completa la autorización en tu navegador...',
+                    success_message='✅ Autorización exitosa. Puedes cerrar esta ventana.',
+                    open_browser=True
+                )
+                
+                if STREAMLIT_AVAILABLE:
+                    st.success("✅ Autenticación OAuth exitosa!")
+                else:
+                    print("✅ Autenticación OAuth exitosa!")
+                
+            except Exception as e:
+                error_msg = f"❌ Fallo en la autenticación OAuth: {e}"
+                if STREAMLIT_AVAILABLE:
+                    st.error(error_msg)
+                    st.error("**Posibles soluciones:**\n"
+                            "1. Verifica que el archivo 'client_secrets.json' exista\n"
+                            "2. Asegúrate de tener acceso a internet\n"
+                            "3. Verifica que las credenciales OAuth estén correctamente configuradas\n"
+                            "4. Agrega http://localhost:8080/ a las URIs autorizadas en Google Cloud Console\n"
+                            "5. **ALTERNATIVA:** Usa Service Account en lugar de OAuth")
+                else:
+                    print(error_msg)
+                raise Exception(error_msg)
+        
+        # 4. Guardar las credenciales
+        try:
+            with open(TOKEN_FILE, 'w') as token:
+                token.write(creds.to_json())
+            if STREAMLIT_AVAILABLE:
+                st.success("💾 Credenciales OAuth guardadas exitosamente")
+            else:
+                print("💾 Credenciales OAuth guardadas exitosamente")
+        except Exception as e:
+            if STREAMLIT_AVAILABLE:
+                st.warning(f"⚠️ No se pudo guardar el token (no crítico): {e}")
+            else:
+                print(f"⚠️ No se pudo guardar el token (no crítico): {e}")
+    
     return creds
 
-def cargar_api_keys_remotas_seguras():
-    """Descarga las claves del Sheet."""
-    global API_KEYS
-    API_KEYS.clear() 
+
+def _obtener_credenciales():
+    """
+    Función principal que intenta Service Account primero, luego OAuth.
+    PRIORIDAD: Service Account (más fácil para Streamlit)
+    Compatible con Streamlit y Tkinter.
+    """
+    
+    # Si estamos en Streamlit, mostrar selector en sidebar
+    if STREAMLIT_AVAILABLE and hasattr(st, 'sidebar'):
+        st.sidebar.divider()
+        st.sidebar.subheader("🔐 Método de Autenticación")
+        
+        auth_method = st.sidebar.radio(
+            "Seleccionar método:",
+            ["Service Account (Recomendado)", "OAuth (Requiere navegador)"],
+            help="Service Account es más fácil para Streamlit y no requiere navegador"
+        )
+        
+        st.sidebar.divider()
+    else:
+        # Para Tkinter, intentar Service Account primero
+        auth_method = "Service Account (Recomendado)" if os.path.exists(SERVICE_ACCOUNT_FILE) else "OAuth (Requiere navegador)"
+    
     try:
-        creds = _obtener_credenciales() 
-        gc = gspread.authorize(creds)
-        print("Descargando datos de la hoja de Google Sheets...")
-        worksheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_NAME) 
-        data = worksheet.get_all_records()
-        df_keys = pd.DataFrame(data)
-        if 'API KEY' not in df_keys.columns: raise Exception("La hoja de cálculo debe contener una columna llamada 'API KEY'.")
-        extracted = df_keys['API KEY'].dropna().astype(str).tolist()
-        if not extracted: raise Exception("No se encontraron claves válidas en la columna 'API KEY'.")
-        API_KEYS.extend(extracted)
-        print(f"✅ {len(API_KEYS)} API Keys cargadas remotamente.")
-        return True
+        if auth_method == "Service Account (Recomendado)":
+            # OPCIÓN 1: Service Account (SIN navegador, ideal para Streamlit)
+            if os.path.exists(SERVICE_ACCOUNT_FILE):
+                return _obtener_credenciales_service_account()
+            else:
+                if STREAMLIT_AVAILABLE:
+                    st.warning(f"⚠️ No se encontró '{SERVICE_ACCOUNT_FILE}'")
+                    st.info("**Cómo obtener Service Account:**\n"
+                           "1. Ve a Google Cloud Console\n"
+                           "2. IAM & Admin → Service Accounts\n"
+                           "3. Create Service Account\n"
+                           "4. Otorga rol 'Viewer' o 'Editor'\n"
+                           "5. Create Key → JSON\n"
+                           "6. Guarda como 'service-account-key.json'\n"
+                           "7. Comparte tu Google Sheet con el email del Service Account")
+                    st.error("Cambiando a OAuth...")
+                else:
+                    print(f"⚠️ No se encontró '{SERVICE_ACCOUNT_FILE}'. Cambiando a OAuth...")
+                
+                return _obtener_credenciales_oauth()
+        else:
+            # OPCIÓN 2: OAuth (CON navegador, método original)
+            return _obtener_credenciales_oauth()
+            
+    except FileNotFoundError:
+        error_msg = "❌ No se encontró ningún archivo de credenciales"
+        if STREAMLIT_AVAILABLE:
+            st.error(error_msg)
+            st.info("Necesitas uno de estos archivos:\n"
+                   f"- '{SERVICE_ACCOUNT_FILE}' (Service Account - Recomendado)\n"
+                   f"- '{CLIENT_SECRETS_FILE}' (OAuth)")
+        else:
+            print(error_msg)
+        raise
     except Exception as e:
-        print(f"❌ ERROR CRÍTICO al cargar las claves desde Google Sheets: {e}")
+        if STREAMLIT_AVAILABLE:
+            st.error(f"❌ Error en autenticación: {e}")
+        else:
+            print(f"❌ Error en autenticación: {e}")
+        raise
+
+
+def cargar_api_keys_remotas_seguras():
+    """
+    Descarga las claves del Sheet usando el método de autenticación seleccionado.
+    Compatible con Streamlit y Tkinter.
+    """
+    global API_KEYS
+    API_KEYS.clear()
+    
+    try:
+        if STREAMLIT_AVAILABLE:
+            with st.spinner('🔑 Obteniendo credenciales de Google...'):
+                creds = _obtener_credenciales()
+            
+            with st.spinner('📊 Conectando a Google Sheets...'):
+                gc = gspread.authorize(creds)
+            
+            with st.spinner('📥 Descargando API Keys...'):
+                worksheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+                data = worksheet.get_all_records()
+        else:
+            print("🔑 Obteniendo credenciales de Google...")
+            creds = _obtener_credenciales()
+            
+            print("📊 Conectando a Google Sheets...")
+            gc = gspread.authorize(creds)
+            
+            print("📥 Descargando datos de la hoja de Google Sheets...")
+            worksheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+            data = worksheet.get_all_records()
+        
+        df_keys = pd.DataFrame(data)
+        
+        if 'API KEY' not in df_keys.columns:
+            raise Exception(
+                "❌ La hoja de cálculo debe contener una columna llamada 'API KEY'. "
+                f"Columnas encontradas: {', '.join(df_keys.columns)}"
+            )
+        
+        extracted = df_keys['API KEY'].dropna().astype(str).tolist()
+        extracted = [key.strip() for key in extracted if key.strip()]  # Limpiar espacios
+        
+        if not extracted:
+            raise Exception(
+                "❌ No se encontraron claves válidas en la columna 'API KEY'. "
+                "Verifica que la hoja contenga al menos una API Key."
+            )
+        
+        API_KEYS.extend(extracted)
+        
+        success_msg = f"✅ {len(API_KEYS)} API Keys cargadas remotamente."
+        if STREAMLIT_AVAILABLE:
+            st.success(success_msg)
+            
+            # Mostrar información de depuración (opcional)
+            with st.expander("🔍 Ver detalles de las API Keys"):
+                st.write(f"Total de keys: {len(API_KEYS)}")
+                st.write(f"Primera key (parcial): {API_KEYS[0][:10]}...")
+                st.write(f"Última key (parcial): {API_KEYS[-1][:10]}...")
+        else:
+            print(success_msg)
+        
+        return True
+        
+    except FileNotFoundError as e:
+        error_msg = f"❌ Archivo no encontrado: {e}"
+        if STREAMLIT_AVAILABLE:
+            st.error(error_msg)
+            st.error("Asegúrate de que 'client_secrets.json' o 'service-account-key.json' esté en el directorio de la aplicación")
+        else:
+            print(error_msg)
         return False
         
+    except Exception as e:
+        error_msg = f"❌ ERROR CRÍTICO al cargar las claves desde Google Sheets: {e}"
+        if STREAMLIT_AVAILABLE:
+            st.error(error_msg)
+            st.error("**Verifica:**\n"
+                    "1. Que el ID de la hoja sea correcto\n"
+                    "2. Que tengas permisos de lectura en la hoja\n"
+                    "3. Que la hoja tenga una columna llamada 'API KEY'\n"
+                    "4. Que las credenciales estén correctamente configuradas")
+            
+            with st.expander("🔍 Ver detalles técnicos del error"):
+                st.code(traceback.format_exc())
+        else:
+            print(error_msg)
+            print(traceback.format_exc())
+        
+        return False
 # -------------------------------------------------------------
 
 
