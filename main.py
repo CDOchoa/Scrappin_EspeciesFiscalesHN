@@ -388,7 +388,10 @@ class SARApp(tk.Tk):
         original_cols = [c for c in self.df.columns if c not in ['Estado_Proceso', 'Detalle_Validacion', 'original_index', 'RTN_EXTRAIDO', 'NUM_DOCUMENTO_BUSQUEDA', 'FECHA_DOCUMENTO_BUSQUEDA']]
         
         # Mantener las columnas originales del input, más el estado del proceso y el detalle de la validación
-        export_cols = [c for c in original_cols if c in df_errors.columns] + ['Estado_Proceso', 'Detalle_Validacion']
+        # Solo incluir columnas extra si realmente existen en el DataFrame
+        extra_cols = ['Estado_Proceso', 'Detalle_Validacion']
+        extra_cols_existentes = [c for c in extra_cols if c in df_errors.columns]
+        export_cols = [c for c in original_cols if c in df_errors.columns] + extra_cols_existentes
         df_export = df_errors[export_cols]
         
         # Diálogo para guardar el archivo

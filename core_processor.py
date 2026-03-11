@@ -7,6 +7,7 @@ import time
 import os
 import requests
 import base64
+import google.generativeai as genai
 import sys
 import gspread 
 import json
@@ -53,7 +54,7 @@ def _obtener_credenciales():
             secrets_path = os.path.join(sys._MEIPASS, CLIENT_SECRETS_FILE) if hasattr(sys, '_MEIPASS') else CLIENT_SECRETS_FILE
             try:
                 flow = InstalledAppFlow.from_client_secrets_file(secrets_path, SCOPES)
-                creds = flow.run_local_server(port=0) 
+                creds = flow.run_local_server(port=8080) 
             except Exception as e:
                 raise Exception(f"Fallo en la autenticación con Google: {e}")
         with open(TOKEN_FILE, 'w') as token: token.write(creds.to_json())
@@ -100,6 +101,48 @@ class SARValidator:
         self.extracted_data = [] 
         self.headless = headless
 
+    def _get_chrome_major_version(self):
+        """Detecta automáticamente la versión mayor de Chrome instalada en el sistema."""
+        import subprocess
+        import re
+
+        # Rutas comunes de Chrome en Windows
+        chrome_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ]
+
+        for path in chrome_paths:
+            if os.path.exists(path):
+                try:
+                    result = subprocess.run(
+                        [path, "--version"],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    match = re.search(r"(\d+)\.\d+\.\d+\.\d+", result.stdout)
+                    if match:
+                        version = int(match.group(1))
+                        print(f"🔍 Chrome detectado: versión {version} (ruta: {path})")
+                        return version
+                except Exception:
+                    continue
+
+        # Fallback: intentar desde el registro de Windows
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                 r"Software\Google\Chrome\BLBeacon")
+            version_str, _ = winreg.QueryValueEx(key, "version")
+            major = int(version_str.split(".")[0])
+            print(f"🔍 Chrome detectado (registro): versión {major}")
+            return major
+        except Exception:
+            pass
+
+        print("⚠️ No se pudo detectar la versión de Chrome. UC usará detección automática.")
+        return None
+
     def _init_driver(self):
         # Esta es la única fuente de inicialización del driver.
         print("🔧 Inicializando navegador Selenium...")
@@ -110,14 +153,17 @@ class SARValidator:
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--window-size=1920,1080')
+
+        # Detectar versión de Chrome instalada para evitar mismatch con ChromeDriver
+        chrome_version = self._get_chrome_major_version()
         
         try:
-            # La llamada simple a uc.Chrome() es la más compatible con PyInstaller
-            # si se usa freeze_support en main.py.
+            # version_main le dice a UC qué versión de ChromeDriver descargar,
+            # forzando compatibilidad con el Chrome realmente instalado.
             driver = uc.Chrome(
                 options=options,
-                # Agregamos el nivel de log para reducir spam en la terminal
-                log_level=3 # 0:Info, 1:Warning, 2:Error, 3:None
+                version_main=chrome_version,  # None = auto-detect (fallback seguro)
+                log_level=3  # 0:Info, 1:Warning, 2:Error, 3:None
             )
             print("✅ Navegador inicializado correctamente.")
             return driver
@@ -125,16 +171,15 @@ class SARValidator:
             print(f"❌ Error al inicializar el driver: {e}")
             raise # Lanza el error para que el manejo de fallos crítico lo capture.
         
-    def _get_gemini_endpoint(self):
-        """Devuelve el endpoint de la API con la clave actual (rotación)."""
+    def _get_gemini_model(self):
+        """Configura y devuelve el modelo Gemini SDK con la clave actual (rotación)."""
         if not API_KEYS:
-             raise Exception("No hay API Keys cargadas. Ejecute cargar_api_keys_remotas_seguras() primero.")
-             
+            raise Exception("No hay API Keys cargadas. Ejecute cargar_api_keys_remotas_seguras() primero.")
         if self.current_key_index >= len(API_KEYS):
             raise Exception("Todas las API Keys de Gemini han fallado o agotado su cuota.")
-            
         key = API_KEYS[self.current_key_index]
-        return f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}" 
+        genai.configure(api_key=key)
+        return genai.GenerativeModel("models/gemini-2.5-flash")
 
     def initialize_driver(self):
         """
@@ -244,56 +289,39 @@ class SARValidator:
             captcha_bytes = captcha_img.screenshot_as_png
 
 
+        # Preparar la imagen como blob para el SDK (igual que tu script de prueba)
         image = Image.open(BytesIO(captcha_bytes)).convert("RGB")
         buffered = BytesIO()
-        image.save(buffered, format="PNG")
-        img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        image.save(buffered, format="JPEG")
+        image_blob = {
+            "mime_type": "image/jpeg",
+            "data": buffered.getvalue()
+        }
 
         prompt = "Extrae únicamente el texto del CAPTCHA. No incluyas explicaciones, encabezados, ni texto adicional. Solo la palabra o números del CAPTCHA."
-        
-        contents = [
-            {
-                "role": "user",
-                "parts": [
-                    {"text": prompt},
-                    {"inline_data": {"mime_type": "image/png", "data": img_base64}}
-                ]
-            }
-        ]
-        
-        headers = {"Content-Type": "application/json"}
-        
-        # Bucle de rotación de API Keys
+
+        # Bucle de rotación de API Keys usando el SDK google.generativeai
         while self.current_key_index < len(API_KEYS):
-            
             try:
-                endpoint = self._get_gemini_endpoint()
-                response = requests.post(endpoint, headers=headers, data=json.dumps({"contents": contents}), timeout=30)
+                model = self._get_gemini_model()
+                response = model.generate_content([prompt, image_blob])
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    if 'candidates' in data and len(data['candidates']) > 0 and 'parts' in data['candidates'][0]['content']:
-                        text = data['candidates'][0]['content']['parts'][0]['text'].strip().replace(" ", "")
-                        if text:
-                            return text
-                        else:
-                             raise ValueError("Gemini devolvió una respuesta vacía o ilegible.")
-                    else:
-                        raise ValueError(f"Respuesta Gemini no válida: {data}")
-
-
-                elif 400 <= response.status_code < 500:
-                    print(f"❌ Error en API Key {self.current_key_index + 1} (Código {response.status_code}): {response.text[:80]}... Cambiando.")
-                    self.current_key_index += 1 
-                    time.sleep(1)
+                text = response.text.strip().replace(" ", "")
+                if text:
+                    return text
                 else:
-                    raise Exception(f"Error de servidor en Gemini API (Código {response.status_code}): {response.text}")
+                    raise ValueError("Gemini devolvió una respuesta vacía o ilegible.")
 
             except Exception as e:
-                print(f"❌ Excepción al contactar a Gemini API: {e.__class__.__name__}. Cambiando de key...")
-                self.current_key_index += 1 
-                time.sleep(2)
-        
+                err_msg = str(e)
+                # 429 = cuota agotada → rotar key; otros errores también rotan
+                print(f"❌ Error en API Key {self.current_key_index + 1}: {err_msg[:100]}... Cambiando.")
+                self.current_key_index += 1
+                # Espera más larga si es error de cuota (429) para no agotar la siguiente key inmediatamente
+                wait_time = 10 if '429' in err_msg else 2
+                print(f"  > Esperando {wait_time}s antes de usar la siguiente key...")
+                time.sleep(wait_time)
+
         raise Exception("FATAL: Se agotaron **TODAS** las API Keys de Gemini. Revise la configuración de sus claves.")
 
 
